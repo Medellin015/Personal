@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard BI - Gestión Territorial</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- SheetJS para exportar a Excel la tabla -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        :root {
+            --primary: #0284c7; --primary-hover: #0369a1; --surface: #ffffff; --background: #f3f2f1;
+            --text-main: #0f172a; --text-muted: #64748b; --border: #cbd5e1; --locked-bg: #f8fafc;
+            --editable-bg: #eff6ff; --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background);
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 280px;
+            width: 100%;
+        }
+
+        /* Estilos de la Tabla */
+        .table-wrapper { overflow: auto; flex-grow: 1; scroll-behavior: smooth; background: #fff; height: calc(100vh - 280px); border-radius: 8px; border: 1px solid var(--border); }
+        table { border-collapse: collapse; text-align: left; white-space: nowrap; width: 100%; }
+        
+        th { background-color: #f1f5f9; padding: 12px 16px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #334155; border-bottom: 2px solid #cbd5e1; border-right: 1px solid #e2e8f0; font-weight: 700; position: sticky; top: 0; z-index: 10; }
+        td { padding: 10px 16px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; font-size: 13px; vertical-align: middle; color: #334155;}
+
+        .row-locked { background-color: var(--locked-bg); color: var(--text-muted); }
+        .row-locked td:nth-child(1) { background-color: #e2e8f0; font-weight: 600; color: var(--text-muted); }
+        
+        .row-editable { background-color: var(--editable-bg); transition: background-color 0.3s ease; }
+        .row-editable td:nth-child(1) { background-color: #bae6fd; font-weight: 600; color: var(--primary); }
+
+        .sort-container { display: flex; justify-content: space-between; align-items: center; cursor: pointer; flex-grow: 1; }
+        .sort-icon { color: #94a3b8; font-size: 10px; margin-left: 5px; }
+        .sort-icon.active { color: var(--primary); font-weight: bold; }
+
+        .filter-icon-btn { opacity: 0; background: none; border: none; cursor: pointer; font-size: 11px; color: #64748b; padding: 3px 6px; margin-left: 5px; transition: all 0.2s; border-radius: 4px; }
+        .filter-icon-btn:hover { background: #e2e8f0; color: var(--primary); }
+        th:hover .filter-icon-btn { opacity: 1; }
+        .filter-icon-btn.active { opacity: 1; color: var(--primary); font-weight: bold; background: #dbeafe; }
+
+        .cell-display { width: 100%; min-height: 20px; cursor: pointer; white-space: inherit; padding: 6px; border: 1px solid transparent; border-radius: 4px; box-sizing: border-box; transition: all 0.2s; word-wrap: break-word; }
+        .cell-display:hover { border: 1px dashed var(--primary); background: #dbeafe; }
+
+        .cell-input { width: 100%; border: 1px solid transparent; background: transparent; font-family: inherit; font-size: 13px; color: inherit; outline: none; padding: 6px; border-radius: 4px; transition: all 0.2s; box-sizing: border-box;}
+        .cell-input:hover { border: 1px dashed var(--primary); background: #dbeafe; }
+        .cell-input:focus { border: 1px solid var(--primary); background: #fff; }
+        select.cell-input { cursor: pointer; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .view-hidden { display: none !important; }
+    </style>
+</head>
+<body class="text-slate-800 flex h-screen overflow-hidden">
+
+    <!-- Menú Lateral -->
+    <aside class="w-16 md:w-64 bg-slate-900 text-slate-300 flex flex-col transition-all duration-300 shrink-0 z-20">
+        <div class="h-16 flex items-center justify-center md:justify-start md:px-6 border-b border-slate-700 bg-slate-950">
+            <i class="ph ph-chart-polar text-2xl text-blue-500"></i>
+            <span class="ml-3 font-semibold text-white hidden md:block tracking-wide">BI Territorial</span>
+        </div>
+        
+        <nav class="flex-1 py-4">
+            <ul class="space-y-1">
+                <li>
+                    <a href="#" onclick="switchView('Dashboard')" id="nav-Dashboard" class="flex items-center px-6 py-3 bg-blue-600/10 text-blue-400 border-r-4 border-blue-500 transition-colors">
+                        <i class="ph ph-squares-four text-xl"></i>
+                        <span class="ml-3 hidden md:block font-medium">Resumen General</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" onclick="switchView('Personal')" id="nav-Personal" class="flex items-center px-6 py-3 hover:bg-slate-800 hover:text-white border-r-4 border-transparent transition-colors">
+                        <i class="ph ph-users text-xl"></i>
+                        <span class="ml-3 hidden md:block">Gestión de Personal</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        <div class="p-4 border-t border-slate-800"></div>
+    </aside>
+
+    <!-- Contenido Principal -->
+    <main class="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
+        
+        <!-- Barra Superior -->
+        <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-10 shadow-sm">
+            <h1 class="text-xl font-semibold text-slate-800 hidden sm:block" id="headerTitle">Panel de Control Principal</h1>
+            <div class="flex items-center space-x-4 ml-auto">
+                <span id="syncStatus" class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-semibold border border-blue-200">
+                    🔄 Sincronizando...
+                </span>
+            </div>
+        </header>
+
+        <!-- ================= VISTA 1: DASHBOARD DE GRÁFICOS ================= -->
+        <div id="viewDashboard" class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+            <div class="mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">Vista General de Datos</h2>
+                <p class="text-sm text-slate-500 mt-1">Conectado a la base de datos central en tiempo real.</p>
+            </div>
+
+            <!-- KPIs -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex items-center">
+                    <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-2xl mr-4"><i class="ph ph-files"></i></div>
+                    <div><p class="text-sm font-medium text-slate-500">Total Registros</p><h3 class="text-2xl font-bold text-slate-800" id="kpiTotal">...</h3></div>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex items-center">
+                    <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl mr-4"><i class="ph ph-map-trifold"></i></div>
+                    <div><p class="text-sm font-medium text-slate-500">Territorios</p><h3 class="text-2xl font-bold text-slate-800" id="kpiComunas">...</h3></div>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex items-center">
+                    <div class="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-2xl mr-4"><i class="ph ph-briefcase"></i></div>
+                    <div><p class="text-sm font-medium text-slate-500">Componentes Activos</p><h3 class="text-2xl font-bold text-slate-800" id="kpiComponentes">...</h3></div>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex items-center">
+                    <div class="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center text-2xl mr-4"><i class="ph ph-identification-card"></i></div>
+                    <div><p class="text-sm font-medium text-slate-500">Roles Distintos</p><h3 class="text-2xl font-bold text-slate-800" id="kpiRoles">...</h3></div>
+                </div>
+            </div>
+
+            <!-- Gráficos -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex flex-col lg:col-span-2">
+                    <h3 class="text-base font-bold text-slate-800 mb-4">Registros por Subsecretaría</h3>
+                    <div class="chart-container flex-1"><canvas id="chartSubsecretaria"></canvas></div>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex flex-col">
+                    <h3 class="text-base font-bold text-slate-800 mb-4">Clasificación de Personal</h3>
+                    <div class="chart-container flex-1"><canvas id="chartClasificacion"></canvas></div>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex flex-col">
+                    <h3 class="text-base font-bold text-slate-800 mb-4">Registros por Componente</h3>
+                    <div class="chart-container flex-1"><canvas id="chartComponente"></canvas></div>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex flex-col">
+                    <h3 class="text-base font-bold text-slate-800 mb-4">Distribución por Comuna</h3>
+                    <div class="chart-container flex-1"><canvas id="chartComuna"></canvas></div>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex flex-col">
+                    <h3 class="text-base font-bold text-slate-800 mb-4">Conteo por Rol Principal</h3>
+                    <div class="chart-container flex-1"><canvas id="chartRol"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= VISTA 2: GESTIÓN DE PERSONAL (TABLA INTERACTIVA) ================= -->
+        <div id="viewPersonal" class="flex-1 flex flex-col p-4 md:p-6 lg:p-8 view-hidden">
+            
+            <div class="mb-4 flex flex-wrap justify-between items-end gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800">Base de Datos de Personal</h2>
+                    <p class="text-sm text-slate-500 mt-1" id="tableSummary">Cargando registros...</p>
+                </div>
+                
+                <!-- Controles de la Tabla -->
+                <div class="flex items-center gap-3 bg-white p-2 rounded-lg shadow-sm border border-slate-200">
+                    <div class="flex items-center gap-2 px-2 border-r border-slate-200">
+                        <label class="text-sm font-semibold text-slate-600"><i class="ph ph-user-circle"></i> Rol:</label>
+                        <select id="roleSelector" onchange="handleRoleChange()" class="bg-slate-50 border border-slate-200 text-sm rounded px-2 py-1 outline-none focus:border-blue-500">
+                            <option value="Invitado">Solo Lectura (Invitado)</option>
+                            <option value="Editor">Editor Autorizado</option>
+                        </select>
+                    </div>
+                    <div class="relative">
+                        <i class="ph ph-magnifying-glass absolute left-2.5 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" id="searchTable" onkeyup="renderTable()" placeholder="Buscar en tabla..." class="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-sm outline-none focus:border-blue-500 w-48">
+                    </div>
+                    <button onclick="limpiarFiltros()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded text-sm font-medium transition border border-slate-200">
+                        <i class="ph ph-x-circle"></i> Quitar Filtros
+                    </button>
+                    <button onclick="exportData()" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-sm font-medium transition shadow-sm">
+                        <i class="ph ph-file-xls"></i> Exportar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Contenedor de la Tabla -->
+            <div class="table-wrapper shadow-sm">
+                <table id="dataTable">
+                    <thead id="tableHead"></thead>
+                    <tbody id="tableBody">
+                        <tr><td colspan="10" class="text-center py-10 text-slate-500">Cargando base de datos...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modal de Contraseña -->
+    <div class="modal-overlay" id="passwordModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.4); z-index:100; justify-content:center; align-items:center;">
+        <div class="modal" style="background:white; padding:30px; border-radius:12px; width:350px; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
+            <h3 style="margin-top:0; color:#0f172a; font-size:18px; font-weight:600;">Se requiere autenticación</h3>
+            <p style="font-size:14px; color:#64748b; margin-bottom:20px;">Ingresa la contraseña para acceder al modo Editor</p>
+            <input type="password" id="passwordInput" placeholder="Contraseña..." class="w-full px-3 py-2 border border-slate-300 rounded mb-2 focus:outline-none focus:border-blue-500">
+            <p id="errorMsg" style="color:#ef4444; font-size:13px; display:none; margin-bottom:15px; font-weight:500;">Contraseña incorrecta.</p>
+            <div style="display:flex; justify-content:center; gap:10px; margin-top:15px;">
+                <button class="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded hover:bg-slate-200 transition" onclick="cancelRoleChange()">Cancelar</button>
+                <button id="btnSubmitPassword" class="px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 transition" onclick="verifyPassword()">Acceder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Popup Filtro de Columnas (Modificado Punto 6) -->
+    <div id="columnFilterPopup" style="display:none; position:fixed; z-index:1000; background:white; border:1px solid #cbd5e1; border-radius:8px; padding:12px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); width: 260px;">
+        <div style="font-weight:700; margin-bottom:8px; border-bottom:1px solid #cbd5e1; padding-bottom:8px; display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--primary);">
+            <span id="filterPopupTitle">Columna</span>
+            <button onclick="closeColumnFilter()" style="border:none; background:none; cursor:pointer; color: #64748b;">✖</button>
+        </div>
+        <!-- Buscador interno del embudo -->
+        <div style="margin-bottom: 8px;">
+            <input type="text" id="filterPopupSearch" placeholder="🔍 Buscar opción..." style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; outline: none; background: #f8fafc;" onkeyup="searchFilterPopup()">
+        </div>
+        <div id="filterPopupList" style="max-height:180px; overflow-y:auto; font-size:13px; margin-bottom:10px; color: #334155;"></div>
+        <div style="display:flex; justify-content:space-between; border-top: 1px solid #e2e8f0; padding-top: 8px;">
+            <div style="display:flex; gap: 5px;">
+                <button onclick="selectAllFilters(true)" class="text-xs bg-slate-100 px-2 py-1 rounded hover:bg-slate-200">Todos</button>
+                <button onclick="selectAllFilters(false)" class="text-xs bg-slate-100 px-2 py-1 rounded hover:bg-slate-200">Ninguno</button>
+            </div>
+            <button onclick="applyColumnFilter()" class="text-xs bg-blue-600 text-white px-3 py-1 rounded font-medium hover:bg-blue-700">Aplicar</button>
+        </div>
+    </div>
+
+    <script>
+        // URL EXACTA proporcionada
+        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzTWXesuLvJomaWZmPd6srp6Hvz5NLTgH7Ye6VhHNsKG9pgEY_5mXcet6TEqFrrnHg/exec'; 
+        
+        let globalData = [];
+        let listasDesplegables = {}; 
+        let charts = {};
+        
+        // Variables de Roles
+        let currentRole = 'Invitado';
+        const EDITOR_PASSWORD = 'Personal2050*'; // CONTRASEÑA PARA EL ROL DE EDITOR
+        
+        // Variables para la tabla interactiva
+        const tableColumns = ['Comuna', 'Subsecretaría', 'COMPONENTE', 'CLASIFICACIÓN', 'NOMBRE', 'TELEFONO', 'CORREO ELECTRONICO', 'IDONEIDAD', 'Rol', 'Observación'];
+        let activeColFilters = {};
+        let sortCol = null; 
+        let sortAsc = true;
+        let currentFilterCol = '';
+
+        // Variables Autoguardado (Modificadas Punto 4)
+        let saveTimeoutId = null;
+        let isSaving = false;
+        let deltas = { updates: [] };
+        let saveRetries = 0;
+        let fetchRetries = 0;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+
+            // Modificación UX (Punto 6): Listener para Enter en contraseña
+            document.getElementById('passwordInput').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') verifyPassword();
+            });
+        });
+
+        // 1. NAVEGACIÓN Y VISTAS
+        function switchView(view) {
+            document.getElementById('viewDashboard').classList.add('view-hidden');
+            document.getElementById('viewPersonal').classList.add('view-hidden');
+            
+            document.getElementById('view' + view).classList.remove('view-hidden');
+            
+            document.getElementById('nav-Dashboard').className = `flex items-center px-6 py-3 transition-colors ${view === 'Dashboard' ? 'bg-blue-600/10 text-blue-400 border-r-4 border-blue-500' : 'hover:bg-slate-800 hover:text-white border-r-4 border-transparent text-slate-300'}`;
+            document.getElementById('nav-Personal').className = `flex items-center px-6 py-3 transition-colors ${view === 'Personal' ? 'bg-blue-600/10 text-blue-400 border-r-4 border-blue-500' : 'hover:bg-slate-800 hover:text-white border-r-4 border-transparent text-slate-300'}`;
+
+            document.getElementById('headerTitle').innerText = view === 'Dashboard' ? 'Panel de Control Principal' : 'Gestión de Personal - Base de Datos';
+
+            if (view === 'Personal' && globalData.length > 0) renderTable();
+        }
+
+        // Lógica de Autenticación
+        function handleRoleChange() {
+            let sel = document.getElementById('roleSelector');
+            if (sel.value === 'Editor') {
+                document.getElementById('passwordInput').value = '';
+                document.getElementById('errorMsg').style.display = 'none';
+                document.getElementById('passwordModal').style.display = 'flex';
+                // Focalizar el input para mejor UX
+                setTimeout(() => document.getElementById('passwordInput').focus(), 100);
+            } else {
+                currentRole = 'Invitado';
+                renderTable();
+            }
+        }
+
+        async function verifyPassword() {
+            const passInput = document.getElementById('passwordInput');
+            const errorMsg = document.getElementById('errorMsg');
+            const btnSubmit = document.getElementById('btnSubmitPassword');
+            
+            if (!passInput.value) return;
+
+            errorMsg.style.display = 'none';
+            btnSubmit.innerText = 'Verificando...';
+            btnSubmit.disabled = true;
+
+            try {
+                const response = await fetch(WEB_APP_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        action: 'verifyPassword', 
+                        password: passInput.value 
+                    })
+                });
+                
+                const json = await response.json();
+                
+                if (json.status === 'success') {
+                    currentRole = 'Editor';
+                    document.getElementById('passwordModal').style.display = 'none';
+                    renderTable();
+                } else {
+                    errorMsg.innerText = json.message || 'Contraseña incorrecta.';
+                    errorMsg.style.display = 'block';
+                }
+            } catch (error) {
+                errorMsg.innerText = 'Error de conexión.';
+                errorMsg.style.display = 'block';
+            } finally {
+                btnSubmit.innerText = 'Acceder';
+                btnSubmit.disabled = false;
+            }
+        }
+
+        function cancelRoleChange() {
+            document.getElementById('passwordModal').style.display = 'none';
+            document.getElementById('roleSelector').value = currentRole;
+        }
+
+        // 2. CONEXIÓN Y PROCESAMIENTO DE DATOS (Modificado Punto 4)
+        async function fetchData() {
+            try {
+                document.getElementById('syncStatus').innerHTML = "🔄 Descargando Base de Datos...";
+                document.getElementById('syncStatus').className = "bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-semibold border border-blue-200";
+                
+                const response = await fetch(WEB_APP_URL);
+                const json = await response.json();
+                
+                if (json.status === 'success') {
+                    fetchRetries = 0; // Reseteo tras éxito
+                    globalData = json.data;
+                    listasDesplegables = json.listas || {};
+                    
+                    document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
+                    document.getElementById('syncStatus').innerHTML = "✅ Sincronizado";
+                    
+                    procesarYRenderizarGraficos(globalData);
+                    
+                    if (!document.getElementById('viewPersonal').classList.contains('view-hidden')) {
+                        renderTable();
+                    }
+                } else {
+                    throw new Error(json.message);
+                }
+            } catch (error) {
+                console.error("Error de conexión:", error);
+                if (fetchRetries < 3) {
+                    fetchRetries++;
+                    document.getElementById('syncStatus').innerHTML = `🔄 Reintentando (${fetchRetries}/3)...`;
+                    setTimeout(fetchData, 2000);
+                } else {
+                    document.getElementById('syncStatus').className = "bg-red-50 text-red-600 px-3 py-1 rounded-full text-xs font-semibold border border-red-200 cursor-pointer";
+                    document.getElementById('syncStatus').innerHTML = "❌ Fallo conexión (Clic para reintentar)";
+                    document.getElementById('syncStatus').onclick = () => { fetchRetries = 0; fetchData(); };
+                }
+            }
+        }
+
+        // 3. LÓGICA DE GRÁFICOS (DASHBOARD)
+        function procesarYRenderizarGraficos(data) {
+            function contar(columna) {
+                return data.reduce((acc, fila) => {
+                    let val = fila[columna];
+                    if (!val || val.trim() === '') val = 'Sin Dato / Otro';
+                    else val = val.trim();
+                    acc[val] = (acc[val] || 0) + 1;
+                    return acc;
+                }, {});
+            }
+
+            const datosSubsecretaria = contar('Subsecretaría'); 
+            const datosComuna = contar('Comuna');
+            const datosComponente = contar('COMPONENTE');
+            const datosClasificacion = contar('CLASIFICACIÓN');
+            const datosRol = contar('Rol');
+
+            document.getElementById('kpiTotal').textContent = data.length;
+            document.getElementById('kpiComunas').textContent = Object.keys(datosComuna).length;
+            document.getElementById('kpiComponentes').textContent = Object.keys(datosComponente).length;
+            document.getElementById('kpiRoles').textContent = Object.keys(datosRol).length;
+
+            const colorPalette = ['#0284c7', '#0369a1', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#64748b', '#0ea5e9'];
+            Chart.defaults.font.family = "'Inter', sans-serif";
+            Chart.defaults.color = '#64748b';
+
+            function createChart(id, type, dataObj, customOptions = {}) {
+                if(charts[id]) charts[id].destroy();
+                let entries = Object.entries(dataObj).sort((a,b) => b[1] - a[1]);
+                
+                if (id === 'chartComuna') {
+                    entries.sort((a, b) => {
+                        let vA = a[0].toLowerCase(), vB = b[0].toLowerCase();
+                        if (vA === 'transversal') return -1; if (vB === 'transversal') return 1;
+                        let nA = parseInt(vA), nB = parseInt(vB);
+                        if (!isNaN(nA) && !isNaN(nB)) return nA - nB;
+                        if (!isNaN(nA)) return -1; if (!isNaN(nB)) return 1;
+                        return vA.localeCompare(vB);
+                    });
+                }
+
+                let bgColors = (type === 'bar' && id !== 'chartSubsecretaria') ? (id === 'chartComuna' ? '#8b5cf6' : (id === 'chartRol' ? '#10b981' : '#0284c7')) : colorPalette;
+                if(type === 'polarArea') bgColors = colorPalette.map(c => c + 'CC');
+
+                let config = {
+                    type: type,
+                    data: {
+                        labels: entries.map(e => e[0]),
+                        datasets: [{
+                            data: entries.map(e => e[1]),
+                            backgroundColor: bgColors,
+                            borderWidth: (type === 'pie' || type === 'doughnut' || type === 'polarArea') ? 1 : 0,
+                            borderColor: '#ffffff',
+                            borderRadius: type === 'bar' ? 4 : 0
+                        }]
+                    },
+                    options: Object.assign({
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: (type !== 'bar'), position: 'right', labels: {boxWidth: 10} } }
+                    }, customOptions)
+                };
+                charts[id] = new Chart(document.getElementById(id).getContext('2d'), config);
+            }
+
+            createChart('chartSubsecretaria', 'polarArea', datosSubsecretaria, { scales: { r: { ticks: { display: false } } } });
+            createChart('chartClasificacion', 'doughnut', datosClasificacion, { cutout: '65%' });
+            createChart('chartComponente', 'pie', datosComponente);
+            createChart('chartComuna', 'bar', datosComuna, { scales: { y: { beginAtZero: true }, x: { grid: { display: false } } } });
+            createChart('chartRol', 'bar', datosRol, { indexAxis: 'y', scales: { x: { beginAtZero: true }, y: { grid: { display: false } } } });
+        }
+
+        // --- Modificación Exportación (Punto 5): Función centralizada de filtrado ---
+        function getFilteredViewData() {
+            let searchQ = document.getElementById('searchTable').value.toLowerCase();
+            let viewData = [...globalData];
+
+            if (searchQ) {
+                viewData = viewData.filter(row => {
+                    return tableColumns.some(col => String(row[col] || '').toLowerCase().includes(searchQ));
+                });
+            }
+
+            viewData = viewData.filter(row => {
+                for (let col in activeColFilters) {
+                    if (activeColFilters[col].length > 0) {
+                        if (!activeColFilters[col].includes(String(row[col] || "").trim())) return false;
+                    }
+                }
+                return true;
+            });
+
+            if (sortCol) {
+                viewData.sort((a,b) => {
+                    let vA = String(a[sortCol]||"").toLowerCase();
+                    let vB = String(b[sortCol]||"").toLowerCase();
+                    if(!isNaN(vA) && !isNaN(vB) && vA !== '' && vB !== '') {
+                        return sortAsc ? (Number(vA) - Number(vB)) : (Number(vB) - Number(vA));
+                    }
+                    return sortAsc ? vA.localeCompare(vB) : vB.localeCompare(vA);
+                });
+            }
+            return viewData;
+        }
+
+        // 4. LÓGICA DE LA TABLA (GESTIÓN DE PERSONAL)
+        function toggleSort(col) {
+            if (sortCol === col) sortAsc = !sortAsc; 
+            else { sortCol = col; sortAsc = true; }
+            renderTable();
+        }
+
+        function getColWidths(colName) {
+            const w = {
+                'Observación': 'min-width: 300px;',
+                'NOMBRE': 'min-width: 250px;',
+                'CORREO ELECTRONICO': 'min-width: 200px;',
+                'IDONEIDAD': 'min-width: 350px; white-space: normal; line-height: 1.4;',
+                'COMPONENTE': 'width: 130px; min-width: 130px; max-width: 130px; white-space: normal; line-height: 1.3; overflow-wrap: break-word;',
+                'Rol': 'min-width: 180px;'
+            };
+            return w[colName] || 'min-width: 120px;';
+        }
+
+        function renderTable() {
+            // Utilizamos la función centralizada
+            let viewData = getFilteredViewData();
+
+            let thead = '<tr>';
+            tableColumns.forEach(c => {
+                let isFiltered = activeColFilters[c] ? 'active' : '';
+                thead += `<th style="${getColWidths(c)}">
+                            <div class="flex justify-between items-center">
+                                <div class="sort-container" onclick="toggleSort('${c}')">${c} <span class="sort-icon ${sortCol === c ? 'active' : ''}">${sortCol === c ? (sortAsc?'▲':'▼') : '↕'}</span></div>
+                                <button class="filter-icon-btn ${isFiltered}" onclick="openColumnFilter(event, '${c}')">🔽</button>
+                            </div>
+                          </th>`;
+            });
+            thead += '</tr>';
+            document.getElementById('tableHead').innerHTML = thead;
+
+            let tbody = '';
+            viewData.forEach(row => {
+                let isEditable = currentRole === 'Editor';
+                tbody += `<tr class="${isEditable ? 'row-editable' : 'row-locked'}">`;
+                
+                tableColumns.forEach(c => {
+                    let val = row[c] || '';
+                    if (isEditable) {
+                        let displayVal = val || '&nbsp;';
+                        if (listasDesplegables[c] && listasDesplegables[c].length > 0) {
+                            let optionsHTML = `<option value=""></option>`;
+                            let found = false;
+                            listasDesplegables[c].forEach(opt => {
+                                let isSelected = String(val).trim() === String(opt).trim();
+                                if(isSelected) found = true;
+                                optionsHTML += `<option value="${opt}" ${isSelected ? 'selected' : ''}>${opt}</option>`;
+                            });
+                            if(val !== "" && !found) optionsHTML += `<option value="${val}" selected>${val}</option>`;
+                            
+                            tbody += `<td style="${getColWidths(c)}">
+                                        <div class="cell-display" onclick="this.style.display='none'; this.nextElementSibling.style.display='block'; this.nextElementSibling.focus();">${displayVal}</div>
+                                        <select class="cell-input" style="display:none;" data-rowindex="${row._rowIndex}" data-col="${c}" onchange="updateCellData(this)" onblur="setTimeout(() => { this.style.display='none'; if(this.previousElementSibling) this.previousElementSibling.style.display='block'; }, 150);">
+                                            ${optionsHTML}
+                                        </select>
+                                      </td>`;
+                        } else {
+                            tbody += `<td style="${getColWidths(c)}">
+                                        <div class="cell-display" onclick="this.style.display='none'; this.nextElementSibling.style.display='block'; this.nextElementSibling.focus();">${displayVal}</div>
+                                        <input type="text" class="cell-input" style="display:none;" value="${val}" data-rowindex="${row._rowIndex}" data-col="${c}" onchange="updateCellData(this)" onblur="this.style.display='none'; if(this.previousElementSibling) this.previousElementSibling.style.display='block';">
+                                      </td>`;
+                        }
+                    } else {
+                        tbody += `<td style="${getColWidths(c)}">${val}</td>`;
+                    }
+                });
+                tbody += '</tr>';
+            });
+            
+            if(viewData.length === 0) tbody = `<tr><td colspan="${tableColumns.length}" class="text-center py-10 text-slate-500">No hay resultados para tu búsqueda o filtro.</td></tr>`;
+            
+            document.getElementById('tableBody').innerHTML = tbody;
+            document.getElementById('tableSummary').innerText = `Mostrando ${viewData.length} registros (Vista ${currentRole})`;
+        }
+
+        // 5. AUTOGUARDADO Y MANEJO DE ERRORES (Modificado Punto 4)
+        function updateCellData(input) {
+            let rowIndex = input.getAttribute('data-rowindex');
+            let col = input.getAttribute('data-col');
+            let newVal = input.value;
+            
+            let dataIndex = globalData.findIndex(r => String(r._rowIndex) === String(rowIndex));
+            if(dataIndex > -1) {
+                globalData[dataIndex][col] = newVal;
+                
+                if (input.previousElementSibling && input.previousElementSibling.classList.contains('cell-display')) {
+                    input.previousElementSibling.innerHTML = newVal || '&nbsp;';
+                }
+
+                input.style.backgroundColor = '#d1fae5'; 
+                if (input.previousElementSibling) input.previousElementSibling.style.backgroundColor = '#d1fae5';
+
+                setTimeout(() => {
+                    input.style.backgroundColor = '';
+                    if (input.previousElementSibling) input.previousElementSibling.style.backgroundColor = '';
+                }, 500);
+                
+                deltas.updates.push({ rowIndex: rowIndex, field: col, value: newVal });
+                triggerAutoSave();
+                procesarYRenderizarGraficos(globalData);
+            }
+        }
+
+        function triggerAutoSave() {
+            document.getElementById('syncStatus').className = "bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-xs font-semibold border border-yellow-200";
+            document.getElementById('syncStatus').innerHTML = "⏳ Guardando...";
+            if (saveTimeoutId) clearTimeout(saveTimeoutId);
+            saveTimeoutId = setTimeout(ejecutarGuardado, 2000);
+        }
+
+        async function ejecutarGuardado() {
+            if(deltas.updates.length === 0) return;
+            isSaving = true;
+            
+            let dedup = new Map();
+            deltas.updates.forEach(u => dedup.set(u.rowIndex + '_' + u.field, u));
+            let snapshot = Array.from(dedup.values());
+            deltas.updates = []; 
+            
+            try {
+                const res = await fetch(WEB_APP_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ updates: snapshot })
+                });
+                const json = await res.json();
+                
+                if(json.status === 'success') {
+                    saveRetries = 0; // Reseteo tras éxito
+                    document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
+                    document.getElementById('syncStatus').innerHTML = "✅ Cambios guardados";
+                } else {
+                    throw new Error(json.message);
+                }
+            } catch(err) {
+                console.error("Error al guardar", err);
+                deltas.updates.unshift(...snapshot); 
+                
+                saveRetries++;
+                if (saveRetries <= 3) {
+                    document.getElementById('syncStatus').className = "bg-orange-50 text-orange-600 px-3 py-1 rounded-full text-xs font-semibold border border-orange-200";
+                    document.getElementById('syncStatus').innerHTML = `⚠️ Error al guardar. Reintentando... (${saveRetries}/3)`;
+                } else {
+                    document.getElementById('syncStatus').className = "bg-red-50 text-red-600 px-3 py-1 rounded-full text-xs font-semibold border border-red-200 cursor-pointer";
+                    document.getElementById('syncStatus').innerHTML = "❌ Fallo al guardar (Clic para reintentar)";
+                    document.getElementById('syncStatus').onclick = () => { saveRetries = 0; triggerAutoSave(); };
+                    isSaving = false;
+                    return; // Prevenir ciclo infinito al abortar triggerAutoSave en finally
+                }
+            } finally {
+                isSaving = false;
+                if(deltas.updates.length > 0 && saveRetries <= 3) triggerAutoSave();
+            }
+        }
+
+        // 6. LÓGICA DE FILTROS DE COLUMNA Y BUSCADOR INTERNO
+        function limpiarFiltros() {
+            activeColFilters = {};
+            document.getElementById('searchTable').value = '';
+            renderTable();
+        }
+
+        function searchFilterPopup() {
+            let input = document.getElementById('filterPopupSearch').value.toLowerCase();
+            let labels = document.getElementById('filterPopupList').querySelectorAll('label');
+            labels.forEach(label => {
+                let text = label.textContent || label.innerText;
+                if (text.toLowerCase().indexOf(input) > -1) {
+                    label.style.display = 'block';
+                } else {
+                    label.style.display = 'none';
+                }
+            });
+        }
+
+        function openColumnFilter(e, col) {
+            e.stopPropagation();
+            currentFilterCol = col;
+            
+            let uniqueValues = new Set();
+            globalData.forEach(r => uniqueValues.add(String(r[col] || "").trim()));
+            let sortedVals = Array.from(uniqueValues).sort();
+
+            let currentSelected = activeColFilters[col] || sortedVals;
+            let listHTML = '';
+
+            sortedVals.forEach(val => {
+                let isChecked = currentSelected.includes(val) ? 'checked' : '';
+                let displayVal = val === "" ? "(Vacío)" : val;
+                listHTML += `<label style="display:block; margin-bottom:6px; cursor:pointer;"><input type="checkbox" class="col-filter-cb" value="${val}" ${isChecked} style="margin-right:6px;"> ${displayVal}</label>`;
+            });
+
+            document.getElementById('filterPopupTitle').innerText = col;
+            document.getElementById('filterPopupList').innerHTML = listHTML;
+            
+            let searchInput = document.getElementById('filterPopupSearch');
+            if (searchInput) searchInput.value = '';
+
+            let popup = document.getElementById('columnFilterPopup');
+            popup.style.display = 'block';
+
+            // Modificación UX (Punto 6): Posición fija basada en la ventana para no descuadrarse
+            let rect = e.target.getBoundingClientRect();
+            popup.style.top = (rect.bottom + 5) + 'px';
+            popup.style.left = Math.min((rect.left - 100), window.innerWidth - 270) + 'px'; 
+        }
+
+        function closeColumnFilter() { document.getElementById('columnFilterPopup').style.display = 'none'; }
+        
+        function selectAllFilters(check) {
+            let searchInput = document.getElementById('filterPopupSearch');
+            let hasSearch = searchInput && searchInput.value.trim() !== '';
+            
+            document.querySelectorAll('.col-filter-cb').forEach(cb => {
+                let isVisible = cb.closest('label').style.display !== 'none';
+                if (hasSearch) {
+                    if (isVisible) cb.checked = check;
+                } else {
+                    cb.checked = check;
+                }
+            });
+        }
+
+        function applyColumnFilter() {
+            let selected = [];
+            let searchInput = document.getElementById('filterPopupSearch');
+            let hasSearch = searchInput && searchInput.value.trim() !== '';
+            let allCbs = document.querySelectorAll('.col-filter-cb');
+
+            allCbs.forEach(cb => {
+                let isVisible = cb.closest('label').style.display !== 'none';
+                if (hasSearch) {
+                    if (cb.checked && isVisible) selected.push(cb.value);
+                } else {
+                    if (cb.checked) selected.push(cb.value);
+                }
+            });
+
+            if (!hasSearch && (selected.length === allCbs.length || selected.length === 0)) {
+                delete activeColFilters[currentFilterCol]; 
+            } else if (hasSearch && selected.length === 0) {
+                activeColFilters[currentFilterCol] = ["__NO_MATCH__"];
+            } else {
+                activeColFilters[currentFilterCol] = selected;
+            }
+
+            closeColumnFilter();
+            renderTable();
+        }
+
+        document.addEventListener('click', function(e) {
+            let popup = document.getElementById('columnFilterPopup');
+            if (popup.style.display === 'block' && !popup.contains(e.target) && !e.target.classList.contains('filter-icon-btn')) {
+                closeColumnFilter();
+            }
+        });
+
+        // 7. EXPORTAR EXCEL (Modificado Punto 5: Exportar datos filtrados)
+        function exportData() {
+            let filteredData = getFilteredViewData();
+            
+            if (filteredData.length === 0) {
+                alert("No hay datos visibles para exportar."); return;
+            }
+            
+            let cleanData = filteredData.map(row => {
+                let exportRow = {};
+                tableColumns.forEach(c => exportRow[c] = row[c] || '');
+                return exportRow;
+            });
+
+            const ws = XLSX.utils.json_to_sheet(cleanData);
+            const wb = XLSX.utils.book_new(); 
+            XLSX.utils.book_append_sheet(wb, ws, "Personal"); 
+            
+            ws['!cols'] = tableColumns.map(c => { 
+                if (c === 'IDONEIDAD' || c === 'Observación') return { wch: 50 };
+                if (c === 'CORREO ELECTRONICO') return { wch: 30 };
+                return { wch: 20 };
+            });
+
+            XLSX.writeFile(wb, "Base_Personal_Filtrada_BI.xlsx");
+        }
+
+    </script>
+</body>
+</html>
