@@ -390,7 +390,26 @@
                 
                 if (json.status === 'success') {
                     fetchRetries = 0; 
-                    globalData = json.data;
+                    
+                    let serverData = json.data;
+                    
+                    // --- FUSIÓN INTELIGENTE DE DATOS (Data Merge) ---
+                    // 1. Aplicamos ediciones locales que no han subido
+                    deltas.updates.forEach(u => {
+                        let row = serverData.find(r => String(r._rowIndex) === String(u.rowIndex));
+                        if (row) row[u.field] = u.value;
+                    });
+                    
+                    // 2. Ocultamos las filas que mandamos a borrar localmente
+                    serverData = serverData.filter(r => !deltas.deletes.includes(Number(r._rowIndex)));
+                    
+                    // 3. Rescatamos las filas temporales que aún no se envían
+                    let pendingAddIds = deltas.adds.map(a => a._rowIndex);
+                    let pendingAdds = globalData.filter(r => pendingAddIds.includes(r._rowIndex));
+                    
+                    globalData = [...pendingAdds, ...serverData];
+                    // ------------------------------------------------
+                    
                     listasDesplegables = json.listas || {};
                     
                     document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
@@ -774,7 +793,9 @@
                         let checkAndFetch = () => {
                             let isTyping = document.querySelector('.cell-input:focus') !== null;
                             let recentlyEdited = (Date.now() - lastEditTime) < 3000;
-                            if (isTyping || recentlyEdited) {
+                            let hasPendingDeltas = deltas.updates.length > 0 || deltas.adds.length > 0 || deltas.deletes.length > 0 || isSaving;
+                            
+                            if (isTyping || recentlyEdited || hasPendingDeltas) {
                                 setTimeout(checkAndFetch, 2000); 
                             } else {
                                 fetchData();
