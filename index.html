@@ -660,7 +660,6 @@
                     if (input.previousElementSibling) input.previousElementSibling.style.backgroundColor = '';
                 }, 500);
                 
-                // Si la fila es temporal (recién creada), la protegemos
                 if (String(rowIndex).startsWith('temp-')) {
                     lastEditedTempRow = String(rowIndex);
                     lastEditedTempRowTime = Date.now();
@@ -669,9 +668,7 @@
                     if (addObj) {
                         addObj[col] = newVal;
                     } else {
-                        // Protección si el usuario intenta editar una fila que ya subió al servidor y no ha recargado
-                        alert("Este registro ya fue guardado en el servidor. Por favor, haz clic en 'Recargar' en la barra superior para continuar editándolo de forma segura.");
-                        return;
+                        deltas.updates.push({ rowIndex: rowIndex, field: col, value: newVal });
                     }
                 } else {
                     deltas.updates.push({ rowIndex: rowIndex, field: col, value: newVal });
