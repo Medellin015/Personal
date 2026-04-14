@@ -194,6 +194,10 @@
                     <button onclick="limpiarFiltros()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded text-sm font-medium transition border border-slate-200">
                         <i class="ph ph-x-circle"></i> Quitar Filtros
                     </button>
+                    <!-- NUEVO BOTÓN: Crear Fila (Oculto por defecto) -->
+                    <button id="btnNewRow" onclick="crearFila()" style="display:none;" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium transition shadow-sm">
+                        <i class="ph ph-plus-circle"></i> Nueva Fila
+                    </button>
                     <button onclick="exportData()" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-sm font-medium transition shadow-sm">
                         <i class="ph ph-file-xls"></i> Exportar
                     </button>
@@ -205,7 +209,7 @@
                 <table id="dataTable">
                     <thead id="tableHead"></thead>
                     <tbody id="tableBody">
-                        <tr><td colspan="10" class="text-center py-10 text-slate-500">Cargando base de datos...</td></tr>
+                        <tr><td colspan="11" class="text-center py-10 text-slate-500">Cargando base de datos...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -227,7 +231,20 @@
         </div>
     </div>
 
-    <!-- Popup Filtro de Columnas (Modificado Punto 6) -->
+    <!-- Modal de Confirmación de Eliminación (NUEVO) -->
+    <div class="modal-overlay" id="deleteConfirmModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.4); z-index:100; justify-content:center; align-items:center;">
+        <div class="modal" style="background:white; padding:30px; border-radius:12px; width:350px; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
+            <div style="font-size: 40px; color: #ef4444; margin-bottom: 10px;">⚠️</div>
+            <h3 style="margin-top:0; color:#0f172a; font-size:18px; font-weight:600;">¿Eliminar fila?</h3>
+            <p style="font-size:14px; color:#64748b; margin-bottom:20px;">Esta acción no se puede deshacer. ¿Estás seguro de que deseas eliminar este registro permanentemente?</p>
+            <div style="display:flex; justify-content:center; gap:10px; margin-top:15px;">
+                <button class="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded hover:bg-slate-200 transition" onclick="document.getElementById('deleteConfirmModal').style.display='none'">Cancelar</button>
+                <button id="btnConfirmDelete" class="px-4 py-2 bg-red-600 text-white font-medium rounded hover:bg-red-700 transition">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Popup Filtro de Columnas -->
     <div id="columnFilterPopup" style="display:none; position:fixed; z-index:1000; background:white; border:1px solid #cbd5e1; border-radius:8px; padding:12px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); width: 260px;">
         <div style="font-weight:700; margin-bottom:8px; border-bottom:1px solid #cbd5e1; padding-bottom:8px; display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--primary);">
             <span id="filterPopupTitle">Columna</span>
@@ -257,7 +274,6 @@
         
         // Variables de Roles
         let currentRole = 'Invitado';
-        const EDITOR_PASSWORD = 'Personal2050*'; // CONTRASEÑA PARA EL ROL DE EDITOR
         
         // Variables para la tabla interactiva
         const tableColumns = ['Comuna', 'Subsecretaría', 'COMPONENTE', 'CLASIFICACIÓN', 'NOMBRE', 'TELEFONO', 'CORREO ELECTRONICO', 'IDONEIDAD', 'Rol', 'Observación'];
@@ -266,17 +282,19 @@
         let sortAsc = true;
         let currentFilterCol = '';
 
-        // Variables Autoguardado (Modificadas Punto 4)
+        // Variables Autoguardado (Con soporte para adds y deletes)
         let saveTimeoutId = null;
         let isSaving = false;
-        let deltas = { updates: [] };
+        let deltas = { updates: [], adds: [], deletes: [] };
         let saveRetries = 0;
         let fetchRetries = 0;
+        let lastEditTime = 0;
+        let rowToDelete = null; // Variable para almacenar la fila a eliminar
 
         document.addEventListener('DOMContentLoaded', () => {
             fetchData();
 
-            // Modificación UX (Punto 6): Listener para Enter en contraseña
+            // Listener para Enter en contraseña
             document.getElementById('passwordInput').addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') verifyPassword();
             });
@@ -304,10 +322,10 @@
                 document.getElementById('passwordInput').value = '';
                 document.getElementById('errorMsg').style.display = 'none';
                 document.getElementById('passwordModal').style.display = 'flex';
-                // Focalizar el input para mejor UX
                 setTimeout(() => document.getElementById('passwordInput').focus(), 100);
             } else {
                 currentRole = 'Invitado';
+                document.getElementById('btnNewRow').style.display = 'none';
                 renderTable();
             }
         }
@@ -337,6 +355,7 @@
                 if (json.status === 'success') {
                     currentRole = 'Editor';
                     document.getElementById('passwordModal').style.display = 'none';
+                    document.getElementById('btnNewRow').style.display = 'flex'; // Mostrar botón crear fila
                     renderTable();
                 } else {
                     errorMsg.innerText = json.message || 'Contraseña incorrecta.';
@@ -356,7 +375,7 @@
             document.getElementById('roleSelector').value = currentRole;
         }
 
-        // 2. CONEXIÓN Y PROCESAMIENTO DE DATOS (Modificado Punto 4)
+        // 2. CONEXIÓN Y PROCESAMIENTO DE DATOS
         async function fetchData() {
             try {
                 document.getElementById('syncStatus').innerHTML = "🔄 Descargando Base de Datos...";
@@ -366,7 +385,7 @@
                 const json = await response.json();
                 
                 if (json.status === 'success') {
-                    fetchRetries = 0; // Reseteo tras éxito
+                    fetchRetries = 0; 
                     globalData = json.data;
                     listasDesplegables = json.listas || {};
                     
@@ -467,7 +486,6 @@
             createChart('chartRol', 'bar', datosRol, { indexAxis: 'y', scales: { x: { beginAtZero: true }, y: { grid: { display: false } } } });
         }
 
-        // --- Modificación Exportación (Punto 5): Función centralizada de filtrado ---
         function getFilteredViewData() {
             let searchQ = document.getElementById('searchTable').value.toLowerCase();
             let viewData = [...globalData];
@@ -520,7 +538,6 @@
         }
 
         function renderTable() {
-            // Utilizamos la función centralizada
             let viewData = getFilteredViewData();
 
             let thead = '<tr>';
@@ -533,13 +550,13 @@
                             </div>
                           </th>`;
             });
-            thead += '</tr>';
+            thead += '<th style="width: 50px; text-align:center;">⚙️</th></tr>';
             document.getElementById('tableHead').innerHTML = thead;
 
             let tbody = '';
             viewData.forEach(row => {
                 let isEditable = currentRole === 'Editor';
-                tbody += `<tr class="${isEditable ? 'row-editable' : 'row-locked'}">`;
+                tbody += `<tr class="${isEditable ? 'row-editable' : 'row-locked'}" data-rowindex="${row._rowIndex}">`;
                 
                 tableColumns.forEach(c => {
                     let val = row[c] || '';
@@ -571,17 +588,26 @@
                         tbody += `<td style="${getColWidths(c)}">${val}</td>`;
                     }
                 });
+                
+                // Columna de acciones (Eliminar fila)
+                if (isEditable) {
+                    tbody += `<td class="text-center"><button onclick="eliminarFila('${row._rowIndex}')" class="text-red-500 hover:text-red-700 font-bold" title="Eliminar fila">❌</button></td>`;
+                } else {
+                    tbody += `<td></td>`;
+                }
+                
                 tbody += '</tr>';
             });
             
-            if(viewData.length === 0) tbody = `<tr><td colspan="${tableColumns.length}" class="text-center py-10 text-slate-500">No hay resultados para tu búsqueda o filtro.</td></tr>`;
+            if(viewData.length === 0) tbody = `<tr><td colspan="${tableColumns.length + 1}" class="text-center py-10 text-slate-500">No hay resultados para tu búsqueda o filtro.</td></tr>`;
             
             document.getElementById('tableBody').innerHTML = tbody;
             document.getElementById('tableSummary').innerText = `Mostrando ${viewData.length} registros (Vista ${currentRole})`;
         }
 
-        // 5. AUTOGUARDADO Y MANEJO DE ERRORES (Modificado Punto 4)
+        // 5. AUTOGUARDADO (Con Adds y Deletes integrados con el nuevo Backend)
         function updateCellData(input) {
+            lastEditTime = Date.now();
             let rowIndex = input.getAttribute('data-rowindex');
             let col = input.getAttribute('data-col');
             let newVal = input.value;
@@ -602,10 +628,74 @@
                     if (input.previousElementSibling) input.previousElementSibling.style.backgroundColor = '';
                 }, 500);
                 
-                deltas.updates.push({ rowIndex: rowIndex, field: col, value: newVal });
+                // Diferenciar si es una actualización de fila existente o de una recién creada
+                if (String(rowIndex).startsWith('temp-')) {
+                    let addObj = deltas.adds.find(a => a._rowIndex === String(rowIndex));
+                    if (addObj) addObj[col] = newVal;
+                } else {
+                    deltas.updates.push({ rowIndex: rowIndex, field: col, value: newVal });
+                }
+                
                 triggerAutoSave();
                 procesarYRenderizarGraficos(globalData);
             }
+        }
+
+        // FUNCIÓN: CREAR FILA
+        function crearFila() {
+            sortCol = null; // Forzar el orden original de Sheets y evitar saltos automáticos
+            
+            let newRow = { _rowIndex: 'temp-' + Date.now() };
+            tableColumns.forEach(c => newRow[c] = "");
+            
+            globalData.push(newRow); // Insertar al final de la tabla local
+            deltas.adds.push(newRow);   // Enviar objeto al backend
+            
+            triggerAutoSave();
+            renderTable();
+            procesarYRenderizarGraficos(globalData);
+            
+            // Animación de highlight para la fila nueva
+            setTimeout(() => {
+                let filaNueva = document.querySelector(`#tableBody tr[data-rowindex="${newRow._rowIndex}"]`);
+                if (filaNueva) {
+                    filaNueva.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    filaNueva.style.transition = 'background-color 0.5s';
+                    filaNueva.style.backgroundColor = '#fef08a';
+                    setTimeout(() => { filaNueva.style.backgroundColor = ''; }, 2000);
+                }
+            }, 300);
+        }
+
+        // FUNCIÓN: ELIMINAR FILA
+        function eliminarFila(rowIndex) {
+            rowToDelete = rowIndex;
+            // Mostramos el modal moderno en lugar de la alerta nativa
+            document.getElementById('deleteConfirmModal').style.display = 'flex';
+            document.getElementById('btnConfirmDelete').onclick = ejecutarEliminacion;
+        }
+
+        function ejecutarEliminacion() {
+            document.getElementById('deleteConfirmModal').style.display = 'none';
+            if(!rowToDelete) return;
+            
+            let dataIndex = globalData.findIndex(r => String(r._rowIndex) === String(rowToDelete));
+            if(dataIndex > -1) {
+                globalData.splice(dataIndex, 1);
+                
+                // Si la fila a borrar era nueva y no había subido al server, simplemente la sacamos de adds
+                if (String(rowToDelete).startsWith('temp-')) {
+                    deltas.adds = deltas.adds.filter(a => a._rowIndex !== String(rowToDelete));
+                } else {
+                    // Si ya existía en el Excel, la mandamos a deletes (numérico)
+                    deltas.deletes.push(Number(rowToDelete));
+                }
+                
+                triggerAutoSave();
+                renderTable();
+                procesarYRenderizarGraficos(globalData);
+            }
+            rowToDelete = null; // Limpiar la variable tras ejecutar
         }
 
         function triggerAutoSave() {
@@ -616,31 +706,57 @@
         }
 
         async function ejecutarGuardado() {
-            if(deltas.updates.length === 0) return;
+            if(deltas.updates.length === 0 && deltas.adds.length === 0 && deltas.deletes.length === 0) return;
             isSaving = true;
             
             let dedup = new Map();
             deltas.updates.forEach(u => dedup.set(u.rowIndex + '_' + u.field, u));
-            let snapshot = Array.from(dedup.values());
-            deltas.updates = []; 
+            
+            let snapshotUpdates = Array.from(dedup.values());
+            let snapshotAdds = [...deltas.adds];
+            let snapshotDeletes = [...deltas.deletes];
+            
+            deltas = { updates: [], adds: [], deletes: [] }; 
             
             try {
                 const res = await fetch(WEB_APP_URL, {
                     method: 'POST',
-                    body: JSON.stringify({ updates: snapshot })
+                    body: JSON.stringify({ 
+                        updates: snapshotUpdates,
+                        adds: snapshotAdds,
+                        deletes: snapshotDeletes
+                    })
                 });
                 const json = await res.json();
                 
                 if(json.status === 'success') {
-                    saveRetries = 0; // Reseteo tras éxito
+                    saveRetries = 0; 
                     document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
                     document.getElementById('syncStatus').innerHTML = "✅ Cambios guardados";
+                    
+                    // Si se agregaron filas nuevas exitosamente, forzamos un refresh total
+                    // para cambiar sus IDs temporales (temp-) por las filas reales que les asignó el Excel
+                    if(snapshotAdds.length > 0 || snapshotDeletes.length > 0) {
+                        let checkAndFetch = () => {
+                            let isTyping = document.querySelector('.cell-input:focus') !== null;
+                            let recentlyEdited = (Date.now() - lastEditTime) < 3000;
+                            if (isTyping || recentlyEdited) {
+                                setTimeout(checkAndFetch, 2000); // Esperar a que deje de escribir para no perder la línea
+                            } else {
+                                fetchData();
+                            }
+                        };
+                        setTimeout(checkAndFetch, 1000);
+                    }
                 } else {
                     throw new Error(json.message);
                 }
             } catch(err) {
                 console.error("Error al guardar", err);
-                deltas.updates.unshift(...snapshot); 
+                // Si falla, los devolvemos a la cola
+                deltas.updates.unshift(...snapshotUpdates); 
+                deltas.adds.unshift(...snapshotAdds); 
+                deltas.deletes.unshift(...snapshotDeletes); 
                 
                 saveRetries++;
                 if (saveRetries <= 3) {
@@ -651,11 +767,11 @@
                     document.getElementById('syncStatus').innerHTML = "❌ Fallo al guardar (Clic para reintentar)";
                     document.getElementById('syncStatus').onclick = () => { saveRetries = 0; triggerAutoSave(); };
                     isSaving = false;
-                    return; // Prevenir ciclo infinito al abortar triggerAutoSave en finally
+                    return; 
                 }
             } finally {
                 isSaving = false;
-                if(deltas.updates.length > 0 && saveRetries <= 3) triggerAutoSave();
+                if((deltas.updates.length > 0 || deltas.adds.length > 0 || deltas.deletes.length > 0) && saveRetries <= 3) triggerAutoSave();
             }
         }
 
@@ -705,7 +821,6 @@
             let popup = document.getElementById('columnFilterPopup');
             popup.style.display = 'block';
 
-            // Modificación UX (Punto 6): Posición fija basada en la ventana para no descuadrarse
             let rect = e.target.getBoundingClientRect();
             popup.style.top = (rect.bottom + 5) + 'px';
             popup.style.left = Math.min((rect.left - 100), window.innerWidth - 270) + 'px'; 
@@ -761,7 +876,7 @@
             }
         });
 
-        // 7. EXPORTAR EXCEL (Modificado Punto 5: Exportar datos filtrados)
+        // 7. EXPORTAR EXCEL
         function exportData() {
             let filteredData = getFilteredViewData();
             
