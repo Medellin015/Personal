@@ -191,10 +191,14 @@
                         <i class="ph ph-magnifying-glass absolute left-2.5 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
                         <input type="text" id="searchTable" onkeyup="renderTable()" placeholder="Buscar en tabla..." class="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-sm outline-none focus:border-blue-500 w-48">
                     </div>
+                    <!-- NUEVO BOTÓN: Recargar -->
+                    <button onclick="fetchData()" class="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded text-sm font-medium transition border border-blue-200 shadow-sm" title="Recargar datos manualmente">
+                        <i class="ph ph-arrows-clockwise"></i> Recargar
+                    </button>
                     <button onclick="limpiarFiltros()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded text-sm font-medium transition border border-slate-200">
                         <i class="ph ph-x-circle"></i> Quitar Filtros
                     </button>
-                    <!-- NUEVO BOTÓN: Crear Fila (Oculto por defecto) -->
+                    <!-- BOTÓN: Crear Fila (Oculto por defecto) -->
                     <button id="btnNewRow" onclick="crearFila()" style="display:none;" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium transition shadow-sm">
                         <i class="ph ph-plus-circle"></i> Nueva Fila
                     </button>
@@ -664,6 +668,10 @@
                     let addObj = deltas.adds.find(a => a._rowIndex === String(rowIndex));
                     if (addObj) {
                         addObj[col] = newVal;
+                    } else {
+                        // Protección si el usuario intenta editar una fila que ya subió al servidor y no ha recargado
+                        alert("Este registro ya fue guardado en el servidor. Por favor, haz clic en 'Recargar' en la barra superior para continuar editándolo de forma segura.");
+                        return;
                     }
                 } else {
                     deltas.updates.push({ rowIndex: rowIndex, field: col, value: newVal });
@@ -794,21 +802,9 @@
                     document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
                     document.getElementById('syncStatus').innerHTML = "✅ Cambios guardados";
                     
-                    // Si se agregaron filas nuevas exitosamente, forzamos un refresh total
-                    if(snapshotAdds.length > 0 || snapshotDeletes.length > 0) {
-                        let checkAndFetch = () => {
-                            let isTyping = document.querySelector('.cell-input:focus') !== null;
-                            let recentlyEdited = (Date.now() - lastEditTime) < 3000;
-                            let hasPendingDeltas = deltas.updates.length > 0 || deltas.adds.length > 0 || deltas.deletes.length > 0 || isSaving;
-                            
-                            if (isTyping || recentlyEdited || hasPendingDeltas) {
-                                setTimeout(checkAndFetch, 2000); 
-                            } else {
-                                fetchData();
-                            }
-                        };
-                        setTimeout(checkAndFetch, 1000);
-                    }
+                    // ELIMINADA: La recarga automática aquí
+                    // El sistema SÍ guardó en Google Sheets, pero NO descargará los datos para aplastar tu pantalla.
+                    // Solo se recargará la tabla cuando el usuario presione explícitamente el botón "Recargar".
                 } else {
                     throw new Error(json.message);
                 }
