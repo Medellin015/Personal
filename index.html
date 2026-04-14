@@ -735,6 +735,16 @@
             rowToDelete = null; // Limpiar la variable tras ejecutar
         }
 
+        // --- NUEVA FUNCIÓN: Evita bucles infinitos por filas vacías ---
+        function hasPendingActionableDeltas() {
+            if (deltas.updates.length > 0 || deltas.deletes.length > 0) return true;
+            for (let a of deltas.adds) {
+                let isEmpty = tableColumns.every(c => !a[c] || String(a[c]).trim() === "");
+                if (!isEmpty) return true; // Si al menos hay 1 fila con algo escrito, mantenemos el bucle vivo
+            }
+            return false;
+        }
+
         function triggerAutoSave() {
             document.getElementById('syncStatus').className = "bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-xs font-semibold border border-yellow-200";
             document.getElementById('syncStatus').innerHTML = "⏳ Guardando...";
@@ -743,7 +753,10 @@
         }
 
         async function ejecutarGuardado() {
-            if(deltas.updates.length === 0 && deltas.adds.length === 0 && deltas.deletes.length === 0) return;
+            if(deltas.updates.length === 0 && deltas.adds.length === 0 && deltas.deletes.length === 0) {
+                isSaving = false;
+                return;
+            }
             isSaving = true;
             
             let dedup = new Map();
@@ -772,11 +785,19 @@
                 }
             }
             
-            // Si solo nos quedaron adds protegidos y nada más que guardar, nos salimos sin hacer PING al servidor
+            // Si no enviamos nada al servidor en este intento
             if(snapshotUpdates.length === 0 && snapshotAdds.length === 0 && snapshotDeletes.length === 0) {
                 deltas.adds = remainingAdds;
                 isSaving = false;
-                triggerAutoSave(); // Se volverá a intentar en unos segundos
+                
+                // Revisamos si detuvimos el envío porque había que esperar los 10 segundos o porque solo eran filas vacías
+                if (hasPendingActionableDeltas()) {
+                    triggerAutoSave(); // Aún hay datos por guardar, seguimos el bucle
+                } else {
+                    // Solo había filas vacías. Apagamos el bucle.
+                    document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
+                    document.getElementById('syncStatus').innerHTML = "✅ Sincronizado";
+                }
                 return;
             }
 
@@ -798,10 +819,6 @@
                     saveRetries = 0; 
                     document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
                     document.getElementById('syncStatus').innerHTML = "✅ Cambios guardados";
-                    
-                    // ELIMINADA: La recarga automática aquí
-                    // El sistema SÍ guardó en Google Sheets, pero NO descargará los datos para aplastar tu pantalla.
-                    // Solo se recargará la tabla cuando el usuario presione explícitamente el botón "Recargar".
                 } else {
                     throw new Error(json.message);
                 }
@@ -825,7 +842,13 @@
                 }
             } finally {
                 isSaving = false;
-                if((deltas.updates.length > 0 || deltas.adds.length > 0 || deltas.deletes.length > 0) && saveRetries <= 3) triggerAutoSave();
+                if(hasPendingActionableDeltas() && saveRetries <= 3) {
+                    triggerAutoSave();
+                } else if (saveRetries === 0) {
+                     // Solo restaurar a verde si el servidor no falló
+                     document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
+                     document.getElementById('syncStatus').innerHTML = "✅ Sincronizado";
+                }
             }
         }
 
