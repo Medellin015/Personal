@@ -293,7 +293,12 @@
         
         // Variables para la protección de filas nuevas
         let lastEditedTempRow = null;     
-        let lastEditedTempRowTime = 0;    
+        let lastEditedTempRowTime = 0;
+
+        function generateUUID() {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+            return 'uuid-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now().toString(36);
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
             fetchData();
@@ -776,6 +781,7 @@
                 const res = await fetch(WEB_APP_URL, {
                     method: 'POST',
                     body: JSON.stringify({ 
+                        requestId: generateUUID(),
                         updates: snapshotUpdates,
                         adds: snapshotAdds,
                         deletes: snapshotDeletes
@@ -783,7 +789,7 @@
                 });
                 const json = await res.json();
                 
-                if(json.status === 'success') {
+                if(json.status === 'success' || json.status === 'duplicate') {
                     saveRetries = 0; 
                     document.getElementById('syncStatus').className = "bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-semibold border border-green-200";
                     document.getElementById('syncStatus').innerHTML = "✅ Cambios guardados";
