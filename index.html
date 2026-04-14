@@ -231,7 +231,7 @@
         </div>
     </div>
 
-    <!-- Modal de Confirmación de Eliminación (NUEVO) -->
+    <!-- Modal de Confirmación de Eliminación -->
     <div class="modal-overlay" id="deleteConfirmModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.4); z-index:100; justify-content:center; align-items:center;">
         <div class="modal" style="background:white; padding:30px; border-radius:12px; width:350px; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
             <div style="font-size: 40px; color: #ef4444; margin-bottom: 10px;">⚠️</div>
@@ -282,14 +282,18 @@
         let sortAsc = true;
         let currentFilterCol = '';
 
-        // Variables Autoguardado (Con soporte para adds y deletes)
+        // Variables Autoguardado e Integridad
         let saveTimeoutId = null;
         let isSaving = false;
         let deltas = { updates: [], adds: [], deletes: [] };
         let saveRetries = 0;
         let fetchRetries = 0;
         let lastEditTime = 0;
-        let rowToDelete = null; // Variable para almacenar la fila a eliminar
+        let rowToDelete = null; 
+        
+        // Variables para la protección de filas nuevas
+        let lastEditedTempRow = null;     
+        let lastEditedTempRowTime = 0;    
 
         document.addEventListener('DOMContentLoaded', () => {
             fetchData();
@@ -605,7 +609,7 @@
             document.getElementById('tableSummary').innerText = `Mostrando ${viewData.length} registros (Vista ${currentRole})`;
         }
 
-        // 5. AUTOGUARDADO (Con Adds y Deletes integrados con el nuevo Backend)
+        // 5. AUTOGUARDADO (Solución de Integridad para Filas Nuevas)
         function updateCellData(input) {
             lastEditTime = Date.now();
             let rowIndex = input.getAttribute('data-rowindex');
@@ -628,10 +632,15 @@
                     if (input.previousElementSibling) input.previousElementSibling.style.backgroundColor = '';
                 }, 500);
                 
-                // Diferenciar si es una actualización de fila existente o de una recién creada
+                // Si la fila es temporal (recién creada), la protegemos
                 if (String(rowIndex).startsWith('temp-')) {
+                    lastEditedTempRow = String(rowIndex);
+                    lastEditedTempRowTime = Date.now();
+                    
                     let addObj = deltas.adds.find(a => a._rowIndex === String(rowIndex));
-                    if (addObj) addObj[col] = newVal;
+                    if (addObj) {
+                        addObj[col] = newVal;
+                    }
                 } else {
                     deltas.updates.push({ rowIndex: rowIndex, field: col, value: newVal });
                 }
@@ -670,7 +679,6 @@
         // FUNCIÓN: ELIMINAR FILA
         function eliminarFila(rowIndex) {
             rowToDelete = rowIndex;
-            // Mostramos el modal moderno en lugar de la alerta nativa
             document.getElementById('deleteConfirmModal').style.display = 'flex';
             document.getElementById('btnConfirmDelete').onclick = ejecutarEliminacion;
         }
@@ -713,10 +721,37 @@
             deltas.updates.forEach(u => dedup.set(u.rowIndex + '_' + u.field, u));
             
             let snapshotUpdates = Array.from(dedup.values());
-            let snapshotAdds = [...deltas.adds];
             let snapshotDeletes = [...deltas.deletes];
             
-            deltas = { updates: [], adds: [], deletes: [] }; 
+            let snapshotAdds = [];
+            let remainingAdds = [];
+            
+            // --- PROTECCIÓN DE FILAS NUEVAS ---
+            for (let a of deltas.adds) {
+                // 1. Verificamos si la fila está completamente vacía
+                let isEmpty = tableColumns.every(c => !a[c] || String(a[c]).trim() === "");
+                
+                // 2. Verificamos si el usuario estuvo trabajando en ella en los últimos 10 segundos
+                let isRecentlyEdited = (a._rowIndex === lastEditedTempRow && (Date.now() - lastEditedTempRowTime) < 10000);
+                
+                if (isEmpty || isRecentlyEdited) {
+                    // La protegemos (no la enviamos al servidor todavía)
+                    remainingAdds.push(a);
+                } else {
+                    // Ya está lista y estable para enviarse
+                    snapshotAdds.push(a);
+                }
+            }
+            
+            // Si solo nos quedaron adds protegidos y nada más que guardar, nos salimos sin hacer PING al servidor
+            if(snapshotUpdates.length === 0 && snapshotAdds.length === 0 && snapshotDeletes.length === 0) {
+                deltas.adds = remainingAdds;
+                isSaving = false;
+                triggerAutoSave(); // Se volverá a intentar en unos segundos
+                return;
+            }
+
+            deltas = { updates: [], adds: remainingAdds, deletes: [] }; 
             
             try {
                 const res = await fetch(WEB_APP_URL, {
@@ -735,13 +770,12 @@
                     document.getElementById('syncStatus').innerHTML = "✅ Cambios guardados";
                     
                     // Si se agregaron filas nuevas exitosamente, forzamos un refresh total
-                    // para cambiar sus IDs temporales (temp-) por las filas reales que les asignó el Excel
                     if(snapshotAdds.length > 0 || snapshotDeletes.length > 0) {
                         let checkAndFetch = () => {
                             let isTyping = document.querySelector('.cell-input:focus') !== null;
                             let recentlyEdited = (Date.now() - lastEditTime) < 3000;
                             if (isTyping || recentlyEdited) {
-                                setTimeout(checkAndFetch, 2000); // Esperar a que deje de escribir para no perder la línea
+                                setTimeout(checkAndFetch, 2000); 
                             } else {
                                 fetchData();
                             }
